@@ -51,9 +51,11 @@ The program then bans those users from the network via ARP Cache poisoning:
 
     http://en.wikipedia.org/wiki/ARP_spoofing
 
-Network Traffic to/from the banned computer is redirected to your computer, which your computer ignores because it's improperly addressed.  This effectively bans the target from the network.
+In this case Network Traffic to/from the banned computer is redirected to your computer, which your computer ignores because it's improperly addressed.  This effectively bans the target from the network.
 
 ARP cache poisoning continues as long as the program is running.  Restarting the program clears the ban list.  It may take some time for the ban to clear.
+
+Or it sends command to router via SSH to filterout this traffic (sample for RouterOS in config).
 
 ## Is this legal?
 
