@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 
 import threading
 import logging
@@ -9,7 +10,7 @@ import warnings
 
 import lpd
 from hashutils import bintohex
-from Queue import Queue
+from Queue import Queue, Empty 
 
 # ignore deprecation warnings from scapy inclusion
 warnings.filterwarnings( "ignore", category = DeprecationWarning )
@@ -19,6 +20,9 @@ logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import srp,Ether,ARP,conf,sendp,ltoa,atol
 
 import settings
+
+
+NEED_MAC = getattr(settings,"NEED_MAC",True)
 
 class BitHammer:
 
@@ -57,7 +61,7 @@ class BitHammer:
         # Discover network gateway
 
         if self.VERBOSITY > 2:
-            print "Finding network gateway ..."
+            print( "Finding network gateway ...")
         # for route in conf.route.routes:
         for net, msk, gw, iface, addr in conf.route.routes:
           # found a route for given interface
@@ -73,7 +77,7 @@ class BitHammer:
    
         if self.gateway is not None and self.network is not None:
             if self.VERBOSITY > 2:
-                print "Gateway is %s on network %s at interface %s." % ( self.gateway, self.network, self.interface )
+                print("Gateway is %s on network %s at interface %s." % ( self.gateway, self.network, self.interface ))
         else:
           raise Exception( "Error: network gateway not found." )
 
@@ -153,7 +157,14 @@ class BitHammer:
                                 if self.VERBOSITY > 2:
                                     print('  = {} -> {}, already banned'.format(ipEnd, macEnd))
                             self.ips.remove(ipSearch)
-                                        
+            if NEED_MAC:
+                try:
+                    ip,port = self.ipports.get()
+                    mac = filter(lambda x: x[1]==ip, self.macs)[-1]
+                    self.ipportmacs.put((ip,port,mac))
+                except Empty:
+                    pass            
+                                            
     def aprPoisoner(self):
         if self.VERBOSITY > 2:
             print('# Banning MACs in background thread.')
@@ -174,23 +185,27 @@ class BitHammer:
 
         host = getattr(settings,"GATEWAY",self.gateway)
         user = getattr(settings,"LOGIN",'admin')
+
         secret = settings.PASSWORD
         port = 22
         BAN_RULES = settings.BAN_RULES
-
+        print("connecting ssh")
         while self.running:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             try:
-
                 client.connect(hostname=host, username=user, password=secret, port=port)
-                #stdin, stdout, stderr = client.exec_command('ls -l')
-                #data = stdout.read() + stderr.read()
+                print('conected')
+                stdin, stdout, stderr = client.exec_command('ls -l')
+                data = stdout.read() + stderr.read()
 
                 while self.running:
-                    time.sleep(self.DELAY)
-                    ip,port = self.ipportmacs.get()
-                    mac = filter(lambda x: x[1]==ip, self.macs)[-1]
+                    if NEED_MAC:
+                        ip,port,mac = self.ipportmacs.get()
+                    else:
+                        ip,port = self.ipports.get()
+                        mac=None
+
 
                     for rule in BAN_RULES:
                         stdin, stdout, stderr = client.exec_command(rule.format(ip=ip,port=port,mac=mac))
@@ -214,11 +229,11 @@ class BitHammer:
         self.threadResolve = threading.Thread(target=self.ipResolver)
         self.threadResolve.daemon = True
         self.threadResolve.start()
-        if ARP_POISON :
+        if getattr(settings,'ARP_POISON',False) :
             self.threadPoison = threading.Thread(target=self.aprPoisoner)
             self.threadPoison.daemon = True
             self.threadPoison.start()
-        if SSH_BAN:
+        if getattr(settings,'SSH_BAN',False):
             self.threadSSH = threading.Thread(target=self.SSHBanner)
             self.threadSSH.daemon = True
             self.threadSSH.start()
