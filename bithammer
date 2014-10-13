@@ -107,7 +107,7 @@ class BitHammer:
                     print('  - Found Torrent: IP: {}: Hash: {}'.format(sender[0], bintohex(infohash)))
                 self.ips.append(sender[0])
                 if port:
-                    self.ipports.put((sender[0],port))
+                    self.ipports.put((sender[0],port,mac))
             else:
                 if self.VERBOSITY > 2:
                     print('  - Invalid announce: IP: {}'.format(sender[0]))
@@ -171,8 +171,8 @@ class BitHammer:
     def SSHBanner(self):
         import paramiko,sys
 
-        host = self.gateway
-        user = settings.LOGIN
+        host = getattr(settings,"GATEWAY",self.gateway)
+        user = getattr(settings,"LOGIN",'admin')
         secret = settings.PASSWORD
         port = 22
         BAN_RULES = settings.BAN_RULES
@@ -188,12 +188,15 @@ class BitHammer:
 
                 while self.running:
                     time.sleep(self.DELAY)
-                    ip,port = self.ipports.get()
+                    ip,port,mac = self.ipports.get()
                     for rule in BAN_RULES:
-                        stdin, stdout, stderr = client.exec_command(rule.format(ip=ip,port=port))
+                        stdin, stdout, stderr = client.exec_command(rule.format(ip=ip,port=port,mac=mac))
                         if self.VERBOSITY > 3:
                             print(stderr.read(), file=sys.stderr)
                             print(stdout.read())
+                        stdin.flush()
+                        stdout.flush()
+                        stderr.flush()
 
             except Exception as e:
                 print(e.message, file=sys.stderr)
