@@ -80,7 +80,8 @@ class BitHammer:
     def loadSettings(self):
         self.ips = []
         self.macs = []
-        self.ipports = Queue
+        self.ipports = Queue()
+        self.ipportmacs = Queue()
 
     def bitCount( self, n ):
         bits = 0
@@ -107,7 +108,7 @@ class BitHammer:
                     print('  - Found Torrent: IP: {}: Hash: {}'.format(sender[0], bintohex(infohash)))
                 self.ips.append(sender[0])
                 if port:
-                    self.ipports.put((sender[0],port,mac))
+                    self.ipports.put((sender[0],port))
             else:
                 if self.VERBOSITY > 2:
                     print('  - Invalid announce: IP: {}'.format(sender[0]))
@@ -188,7 +189,9 @@ class BitHammer:
 
                 while self.running:
                     time.sleep(self.DELAY)
-                    ip,port,mac = self.ipports.get()
+                    ip,port = self.ipportmacs.get()
+                    mac = filter(lambda x: x[1]==ip, self.macs)[-1]
+
                     for rule in BAN_RULES:
                         stdin, stdout, stderr = client.exec_command(rule.format(ip=ip,port=port,mac=mac))
                         if self.VERBOSITY > 3:
