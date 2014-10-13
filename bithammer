@@ -9,6 +9,7 @@ import warnings
 
 import lpd
 from hashutils import bintohex
+from Queue import Queue
 
 # ignore deprecation warnings from scapy inclusion
 warnings.filterwarnings( "ignore", category = DeprecationWarning )
@@ -17,15 +18,17 @@ logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
 from scapy.all import srp,Ether,ARP,conf,sendp,ltoa,atol
 
+import settings
+
 class BitHammer:
 
     def __init__(self):
 
         # Seconds to delay in loops
-        self.DELAY = 4
+        self.DELAY = getattr(settings,"DELAY",4)
 
         # Verbosity. 0=errors, 1=greeting, 2=show new bans, 3=show details, 4=show each ban
-        self.VERBOSITY = 2
+        self.VERBOSITY = getattr(settings,"VERBOSITY",2)
 
         # List of IP's that are found from ipSearcher.  These are consumed by macResolver.
         self.ips = []
@@ -77,6 +80,7 @@ class BitHammer:
     def loadSettings(self):
         self.ips = []
         self.macs = []
+        self.ipports = Queue
 
     def bitCount( self, n ):
         bits = 0
@@ -102,6 +106,8 @@ class BitHammer:
                 if self.VERBOSITY > 2:
                     print('  - Found Torrent: IP: {}: Hash: {}'.format(sender[0], bintohex(infohash)))
                 self.ips.append(sender[0])
+                if port:
+                    self.ipports.put((sender[0],port))
             else:
                 if self.VERBOSITY > 2:
                     print('  - Invalid announce: IP: {}'.format(sender[0]))
@@ -161,6 +167,38 @@ class BitHammer:
                 sendp( Ether( dst = self.gateway_hw ) / ARP( op = "who-has", psrc = ip,           pdst = self.gateway ), iface_hint = self.gateway )
                 sendp( Ether( dst = mac )             / ARP( op = "who-has", psrc = self.gateway, pdst = ip ),           iface_hint = self.gateway )
 
+
+    def SSHBanner(self):
+        import paramiko,sys
+
+        host = self.gateway
+        user = settings.LOGIN
+        secret = settings.PASSWORD
+        port = 22
+        BAN_RULES = settings.BAN_RULES
+
+        while self.running:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try:
+
+                client.connect(hostname=host, username=user, password=secret, port=port)
+                #stdin, stdout, stderr = client.exec_command('ls -l')
+                #data = stdout.read() + stderr.read()
+
+                while self.running:
+                    time.sleep(self.DELAY)
+                    ip,port = self.ipports.get()
+                    for rule in BAN_RULES:
+                        stdin, stdout, stderr = client.exec_command(rule.format(ip=ip,port=port))
+                        if self.VERBOSITY > 3:
+                            print(stderr.read(), file=sys.stderr)
+                            print(stdout.read())
+
+            except Exception as e:
+                print(e.message, file=sys.stderr)
+                client.close()
+
     def hammer(self):
 
         self.threadSearch = threading.Thread(target=self.ipSearcher)
@@ -170,11 +208,14 @@ class BitHammer:
         self.threadResolve = threading.Thread(target=self.ipResolver)
         self.threadResolve.daemon = True
         self.threadResolve.start()
-
-        self.threadPoison = threading.Thread(target=self.aprPoisoner)
-        self.threadPoison.daemon = True
-        self.threadPoison.start()
-
+        if ARP_POISON :
+            self.threadPoison = threading.Thread(target=self.aprPoisoner)
+            self.threadPoison.daemon = True
+            self.threadPoison.start()
+        if SSH_BAN:
+            self.threadSSH = threading.Thread(target=self.SSHBanner)
+            self.threadSSH.daemon = True
+            self.threadSSH.start()
         while True:
             time.sleep(self.DELAY)
 
